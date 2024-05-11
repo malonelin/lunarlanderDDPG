@@ -6,4 +6,5 @@ test_cnt:100 gt200_cnt:(100/100) avg_steps:165.95 avg_reward: 286.00 w_file./w/a
 
 
 modify --mode in args, to switch between training mode and testing mode
+
 modify --render in args, to switch between render mode and backend mode
