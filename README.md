@@ -5,6 +5,8 @@ test_cnt:100 gt200_cnt:(100/100) avg_steps:165.95 avg_reward: 286.00 w_file./w/a
 2024-05-12 00:36:54.213 | INFO     | __main__:<module>:56 - hyparam:
 2024-05-12 00:36:54.213 | INFO     | __main__:<module>:57 - Namespace(mode='test', render=False, env_name='LunarLanderContinuous-v2', tau=0.001, target_update_interval=1, test_iteration=100, lr_actor=0.0001, lr_critic=0.001, gamma=0.99, capacity=100000.0, batch_size=64, seed=False, random_seed=9527, max_length_of_trajectory=250, log_interval=20, load=False, exploration_noise=0.1, max_episode=100000, best_w_file='./w/actor_best.pth_ep32514_rw292.77_st177', best_w_file_name='actor_best.pth*rw29*', update_iteration=20)
 2024-05-12 00:36:55.993 | INFO     | __main__:<module>:60 - using:cuda
+
+
 2024-05-12 00:36:58.037 | INFO     | __main__:test_mode_one_ep:338 - test mode. ep  0 steps:203 reward: 318.89
 2024-05-12 00:36:58.144 | INFO     | __main__:test_mode_one_ep:338 - test mode. ep  1 steps:183 reward: 302.41
 2024-05-12 00:36:58.221 | INFO     | __main__:test_mode_one_ep:338 - test mode. ep  2 steps:132 reward: 285.26
