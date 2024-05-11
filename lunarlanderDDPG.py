@@ -3,15 +3,14 @@ Author: malonelin
 Date: 2024.04.25
 ref: https://github.com/sweetice/Deep-reinforcement-learning-with-pytorch/blob/master/Char05%20DDPG/DDPG.py
 '''
-import torch, os, sys, random, argparse
+import torch, os, sys, random, argparse, glob
 import numpy as np
 import gymnasium as gym
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from tqdm import tqdm
 from loguru import logger as log
-from itertools import count
-from torch.distributions import Normal
 from tensorboardX import SummaryWriter
 
 '''
@@ -30,26 +29,27 @@ parser.add_argument('--render', default=False, type=bool) # show UI or not
 parser.add_argument("--env_name", default="LunarLanderContinuous-v2")
 parser.add_argument('--tau',  default=0.001, type=float) # target smoothing coefficient
 parser.add_argument('--target_update_interval', default=1, type=int)
-parser.add_argument('--test_iteration', default=200, type=int)
+parser.add_argument('--test_iteration', default=100, type=int)
 
 parser.add_argument('--lr_actor', default=1e-4, type=float)
 parser.add_argument('--lr_critic', default=1e-3, type=float)
 parser.add_argument('--gamma', default=0.99, type=int) # discounted factor
-parser.add_argument('--capacity', default=1e6, type=int) # replay buffer size
+parser.add_argument('--capacity', default=1e5, type=int) # replay buffer size
 parser.add_argument('--batch_size', default=64, type=int) # mini batch size
 parser.add_argument('--seed', default=False, type=bool)
 parser.add_argument('--random_seed', default=9527, type=int)
 # optional parameters
 
-parser.add_argument('--max_length_of_trajectory', default=330, type=int) #
+parser.add_argument('--max_length_of_trajectory', default=250, type=int) #
 # parser.add_argument('--sample_frequency', default=2000, type=int)
 parser.add_argument('--log_interval', default=20, type=int) #
 parser.add_argument('--load', default=False, type=bool) # load model
 # parser.add_argument('--render_interval', default=100, type=int) # after render_interval, the env.render() will work
 parser.add_argument('--exploration_noise', default=0.1, type=float)
 parser.add_argument('--max_episode', default=100000, type=int) # num of games
-parser.add_argument('--best_w_file', default='w/critic_best.pth_rw 256.31_s256.31416308958643', type=str)
-parser.add_argument('--update_iteration', default=30, type=int)
+parser.add_argument('--best_w_file', default='./w/actor_best.pth_ep32514_rw292.77_st177', type=str)
+parser.add_argument('--best_w_file_name', default='actor_best.pth*rw29*', type=str)
+parser.add_argument('--update_iteration', default=20, type=int)
 args = parser.parse_args()
 
 log.add('log/info_{time}.log')
@@ -242,10 +242,10 @@ class DDPG(object):
         torch.save(self.actor.state_dict(), W_DIR + 'actor.pth')
         torch.save(self.critic.state_dict(), W_DIR + 'critic.pth')
 
-    def save_best(self, r, s):
-        actor_w_name = format(f'actor_best.pth_rw{r:>7.2f}_s{s}')
+    def save_best(self, ep, r, s):
+        actor_w_name = format(f'actor_best.pth_ep{ep}_rw{r:.2f}_st{s:.0f}')
         torch.save(self.actor.state_dict(), W_DIR + actor_w_name)
-        critic_w_name = format(f'critic_best.pth_rw{r:>7.2f}_s{s}')
+        critic_w_name = format(f'critic_best.pth_ep{ep}_rw{r:.2f}_st{s:.0f}')
         torch.save(self.critic.state_dict(), W_DIR + critic_w_name)
 
     def load(self):
@@ -255,7 +255,7 @@ class DDPG(object):
         log.info("model has been loaded...")
         log.info("====================================")
 
-    def val_test(self):
+    def val_test(self, train_episode):
         avg_steps = 0
         avg_reward = 0
         test_ep = 0
@@ -275,7 +275,7 @@ class DDPG(object):
             avg_steps /= (test_ep + 1)
             avg_reward /= (test_ep + 1)
         if avg_reward > 200:
-            self.save_best(avg_reward, avg_reward)
+            self.save_best(train_episode, avg_reward, avg_steps)
         log.info(f'validate test:{test_ep + 1:>2}. avg_steps:{(avg_steps):>3} avg_reward:{avg_reward:>7.2f}')
         self.writer.add_scalar('val_test/avg_reward', avg_reward, self.num_val_test)
         self.writer.add_scalar('val_test/avg_steps', avg_steps, self.num_val_test)
@@ -293,9 +293,37 @@ class DDPG(object):
                 ep_r = 0
                 break
 
+    def get_w_file_list(self):
+        w_file_list = glob.glob(os.path.join(W_DIR, args.best_w_file_name))
+        sorted(w_file_list, key = os.path.getctime)
+        return w_file_list
+
+    def print_test_results(self, results):
+        # results is lists of tuple (gt200_cnt, test_cnt, avg_reward, avg_steps, w_file)
+        # check the tuple order by the return value of test_mode_one_ep
+        log.info('sorted results:')
+        for r in results:
+            log.info(f'sorted results. gt200_cnt/test_cnt:({r[0]:>3}/{r[1]}) avg_reward:{r[2]:>7.2f} avg_steps:{r[3]:>3} w_file{r[4]}')
+
     def test_mode(self):
-        self.actor.load_state_dict(torch.load(args.best_w_file))
-        for i in range(args.test_iteration):
+        if 'all' == args.best_w_file:
+            w_files = self.get_w_file_list()
+            w_files.sort()
+            test_results = []
+            for w_file in tqdm(w_files):
+                test_results.append(self.test_mode_one_ep(w_file, print_log = False))
+            test_results.sort()
+            self.print_test_results(test_results)
+        else:
+            self.test_mode_one_ep(args.best_w_file)
+            
+    def test_mode_one_ep(self, w_file, print_log = True):
+        self.actor.load_state_dict(torch.load(w_file))
+        avg_reward = 0
+        avg_steps = 0
+        gt200_cnt = 0
+        test_cnt = args.test_iteration
+        for i in range(test_cnt):
             state, _ = env.reset()
             ep_r = 0
             for t in range(args.max_length_of_trajectory):
@@ -303,10 +331,20 @@ class DDPG(object):
                 next_state, reward, done, truncated, _ = env.step(np.float32(action))
                 ep_r += reward
                 if done or truncated:
-                    log.info(f'test mode. ep{i:>3} steps:{(t+1):>3} reward:{ep_r:>7.2f}')
+                    avg_reward += ep_r
+                    avg_steps += (t + 1)
+                    if ep_r >= 200:
+                        gt200_cnt += 1
+                    if print_log: log.info(f'test mode. ep{i:>3} steps:{(t+1):>3} reward:{ep_r:>7.2f}')
                     break
                 state = next_state
-
+        if test_cnt <= 0:
+            return
+        avg_reward /= test_cnt
+        avg_steps /= test_cnt
+        log.info(f'test mode. test_cnt:{test_cnt} gt200_cnt:({gt200_cnt}/{test_cnt}) avg_steps:{avg_steps:>3} avg_reward:{avg_reward:>7.2f} w_file{w_file}')
+        return (gt200_cnt, test_cnt, avg_reward, avg_steps, w_file)
+    
 def main():
     agent = DDPG(state_dim, action_dim, max_action)
     # ou_process = OrnsteinUhlenbeckProcess(size=1, sigma=0.2)
@@ -340,9 +378,9 @@ def main():
             log.info(f'training steps:{total_step:>5} ep:{i:>4} landStep:{step+1:>3} reward:{total_reward:>8.2f}')
             agent.learn()
 
-            if i % args.log_interval == 0 and i != 0:
+            if (i % args.log_interval == 0 and i != 0) or (total_reward > 200):
                 agent.save()
-                agent.val_test()
+                agent.val_test(i)
                 agent.human_test()
     else:
         raise NameError("mode wrong!!!")
